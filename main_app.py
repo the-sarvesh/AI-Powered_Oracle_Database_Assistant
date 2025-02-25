@@ -35,6 +35,11 @@ def init_session_state():
         st.session_state.chat_ai_response = ""
     if "chat_has_response" not in st.session_state:
         st.session_state.chat_has_response = False
+    # Initialize analysis state
+    if "analysis_result" not in st.session_state:
+        st.session_state.analysis_result = None
+    if "show_analysis" not in st.session_state:
+        st.session_state.show_analysis = False
 
 def connection_form():
     with st.form("connection"):
@@ -63,12 +68,44 @@ def main_interface():
     with tabs[2]:
         handle_health_monitor()
     
-    # Display query results, analysis, and chat only if a query has been executed
+    # Display query results and chat only if a query has been executed
     if st.session_state.get("query_df") is not None and st.session_state.get("executed_sql") is not None:
         st.subheader("Query Results")
         st.dataframe(st.session_state.query_df)
-        show_analysis_section()
+        
+        # Add button to generate analysis
+        if st.button("Generate Analysis and Recommendations"):
+            generate_analysis()
+            st.session_state.show_analysis = True
+        
+        # Display analysis if available
+        if st.session_state.show_analysis and st.session_state.analysis_result:
+            st.subheader("Analysis and Recommendations")
+            st.write(st.session_state.analysis_result)
+            
+            if st.button("Clear Analysis"):
+                st.session_state.analysis_result = None
+                st.session_state.show_analysis = False
+                st.experimental_rerun()
+        
         show_chat_section()
+
+def generate_analysis():
+    """Generates analysis and recommendations."""
+    if "executed_sql" not in st.session_state or "query_df" not in st.session_state:
+        st.error("No query context available for analysis.")
+        return
+
+    sql = st.session_state.executed_sql
+    df = st.session_state.query_df
+
+    analysis_prompt = create_analysis_prompt(sql, df)
+    with st.spinner("Analyzing data and generating recommendations..."):
+        analysis_result = groq.analyze_data(analysis_prompt)
+        if analysis_result:
+            st.session_state.analysis_result = analysis_result
+        else:
+            st.error("No analysis received from AI.")
 
 def handle_nl2sql():
     col1, col2 = st.columns([3, 2])
@@ -110,6 +147,9 @@ def execute_query(sql):
                 # Store the query context in session state
                 st.session_state.executed_sql = sql
                 st.session_state.query_df = df
+                # Reset analysis when a new query is executed
+                st.session_state.analysis_result = None
+                st.session_state.show_analysis = False
                 # Rerun the app so that main_interface displays results once
                 st.experimental_rerun()
             else:
@@ -167,33 +207,6 @@ def show_chat_section():
                 st.session_state.chat_ai_response = ""
                 st.experimental_rerun()
 
-def show_analysis_section():
-    """Generates and displays analysis and recommendations."""
-    if "executed_sql" not in st.session_state or "query_df" not in st.session_state:
-        st.error("No query context available for analysis.")
-        return
-
-    sql = st.session_state.executed_sql
-    df = st.session_state.query_df
-
-    analysis_prompt = create_analysis_prompt(sql, df)
-    with st.spinner("Analyzing data and generating recommendations..."):
-        analysis_result = groq.analyze_data(analysis_prompt)
-        if analysis_result:
-            st.subheader("Analysis and Recommendations")
-            st.write(analysis_result)
-        else:
-            st.error("No analysis received from AI.")
-
-def handle_empty_query(sql):
-    """Handles the case where the query returns no rows."""
-    metadata = st.session_state.oracle.get_table_metadata(sql)
-    if metadata is not None:
-        st.info("Query executed successfully but returned no rows. Displaying table metadata:")
-        st.dataframe(metadata)
-    else:
-        st.warning("Query executed successfully but returned no rows, and no metadata was available.")
-
 def create_chat_prompt(sql, df, user_question):
     """Creates the prompt for the AI chat based on the executed SQL and its results."""
     return f"""
@@ -224,6 +237,15 @@ def create_analysis_prompt(sql, df):
     2. Recommendations: Suggestions for further exploration or actions.
     3. New SQL Queries: Additional queries to dig deeper into the data, along with a description of their purpose.
     """
+
+def handle_empty_query(sql):
+    """Handles the case where the query returns no rows."""
+    metadata = st.session_state.oracle.get_table_metadata(sql)
+    if metadata is not None:
+        st.info("Query executed successfully but returned no rows. Displaying table metadata:")
+        st.dataframe(metadata)
+    else:
+        st.warning("Query executed successfully but returned no rows, and no metadata was available.")
 
 def handle_optimization():
     if st.button("Analyze Slow Queries"):
