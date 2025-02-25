@@ -4,6 +4,11 @@ import streamlit as st
 from groq import Groq
 from dotenv import load_dotenv
 from typing import Optional
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
 
 load_dotenv()
 
@@ -66,9 +71,8 @@ class GroqHandler:
 """
 
     def generate_sql(self, natural_language: str) -> Optional[str]:
-
         try:
-            # Send request to the LLM API
+            logging.info(f"Received natural language input: {natural_language}")
             response = self.client.chat.completions.create(
                 model="mixtral-8x7b-32768",
                 messages=[
@@ -77,22 +81,48 @@ class GroqHandler:
                 ],
                 temperature=0.2
             )
-
-            # Extract raw output
             raw_output = response.choices[0].message.content.strip()
+            logging.info(f"Received SQL output: {raw_output}")
+            clean_sql = self._clean_output(raw_output)
+            return clean_sql
+        except Exception as e:
+            logging.error(f"Error in generate_sql: {str(e)}")
+            st.error(f"API Error: {str(e)}")
+            return None
+
+    
+    def analyze_data(self, data_prompt: str) -> Optional[str]:
+        try:
+            logging.info("Sending request to Groq API with prompt:")
+            logging.info(data_prompt)
+            response = self.client.chat.completions.create(
+                model="mixtral-8x7b-32768",
+                messages=[
+                    {"role": "system", "content": (
+                        "You are a Oracle database 21 assistant. Analyze the provided data and provide insights, recommendations, "
+                        "and new SQL queries to explore further. Avoid any query or syntax that is not compliant with Oracle 21c."
+                    )},
+                    {"role": "user", "content": data_prompt}
+                ],
+                temperature=0.2
+            )
+            raw_output = response.choices[0].message.content.strip()
+            logging.info("Received raw output from Groq API:")
+            logging.info(raw_output)
             if not raw_output:
                 st.error("Empty response from Groq API.")
                 return None
-
-            # Clean unwanted backslashes from the raw output
-            clean_sql = self._clean_output(raw_output)
-            print(clean_sql)  # Debugging: Print cleaned SQL for review
-
-            return clean_sql
-
+            # Clean and return the output
+            clean_output = self._clean_output(raw_output)
+            logging.info("Cleaned output:")
+            logging.info(clean_output)
+            return clean_output
         except Exception as e:
             st.error(f"API Error: {str(e)}")
+            logging.error("Exception in analyze_data:", exc_info=True)
             return None
+
+
 
     def _clean_output(self, raw_output: str) -> str:
         # Remove unwanted backslashes from the raw output

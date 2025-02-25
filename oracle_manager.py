@@ -87,12 +87,39 @@ class OracleManager:
             error = e.args[0]
             print(f"Performance Data Error: ORA-{error.code}: {error.message}")
             return []
+        
+
+    def get_table_metadata(self, sql: str) -> Optional[pd.DataFrame]:
+        """
+        Fetch and return metadata of the table involved in the SQL query.
+        """
+        try:
+            # Extract table name from the SQL query (basic implementation)
+            table_name = sql.split("FROM")[1].split()[0]
+
+            # Query to fetch metadata
+            metadata_query = f"""
+                SELECT column_name, data_type, data_length
+                FROM all_tab_columns
+                WHERE table_name = UPPER('{table_name}')
+            """
+
+            with self.conn.cursor() as cursor:
+                cursor.execute(metadata_query)
+                columns = [col[0] for col in cursor.description]
+                return pd.DataFrame(cursor.fetchall(), columns=columns)
+
+        except Exception as e:
+            print(f"Error fetching metadata: {str(e)}")
+            return None
+
 
     def close(self):
         """Close the database connection."""
         if self.conn:
             self.conn.close()
             self.conn = None
+
 
     def __enter__(self):
         return self
